@@ -8,6 +8,12 @@ use ratatui::{
 
 use std::io;
 
+use color_eyre::{
+    eyre::{bail, WrapErr},
+    Result,
+};
+
+mod errors;
 mod tui;
 
 #[derive(Debug, Default)]
@@ -17,10 +23,10 @@ pub struct App {
 }
 
 impl App {
-    pub fn run(&mut self, terminal: &mut tui::Tui) -> io::Result<()> {
+    pub fn run(&mut self, terminal: &mut tui::Tui) -> Result<()> {
         while !self.exit {
             terminal.draw(|frame| self.render_frame(frame))?;
-            self.handle_events()?;
+            self.handle_events().wrap_err("handle events failed")?;
         }
         Ok(())
     }
@@ -29,35 +35,46 @@ impl App {
         frame.render_widget(self, frame.size());
     }
 
-    fn handle_events(&mut self) -> io::Result<()> {
-        match event::read()? {
-            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                self.handle_key_event(key_event)
-            }
-            _ => {}
+    fn handle_events(&mut self) -> Result<()> {
+        let _ = match event::read()? {
+            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => self
+                .handle_key_event(key_event)
+                .wrap_err_with(|| format!("handling key event failed: \n{key_event:#?}")),
+            _ => Ok(()),
         };
+
         Ok(())
     }
 
-    fn handle_key_event(&mut self, key_event: KeyEvent) {
+    fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<()> {
         match key_event.code {
             KeyCode::Char('q') => self.exit(),
-            KeyCode::Left => self.decrement_counter(),
-            KeyCode::Right => self.increment_counter(),
+            KeyCode::Left => self.decrement_counter()?,
+            KeyCode::Right => self.increment_counter()?,
             _ => {}
         }
+
+        Ok(())
     }
 
     fn exit(&mut self) {
         self.exit = true;
     }
 
-    fn increment_counter(&mut self) {
+    fn increment_counter(&mut self) -> Result<()> {
         self.counter += 1;
+
+        if self.counter > 2 {
+            bail!("counter overflow")
+        }
+
+        Ok(())
     }
 
-    fn decrement_counter(&mut self) {
+    fn decrement_counter(&mut self) -> Result<()> {
         self.counter -= 1;
+
+        Ok(())
     }
 }
 
@@ -95,12 +112,13 @@ impl Widget for &App {
     }
 }
 
-fn main() -> io::Result<()> {
+fn main() -> Result<()> {
+    let _ = errors::install_hooks();
     let mut terminal = tui::init()?;
 
     let app_result = App::default().run(&mut terminal);
 
     tui::restore()?;
 
-    app_result
+    Ok(())
 }
